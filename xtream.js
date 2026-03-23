@@ -75,5 +75,34 @@ app.get("/live/:u/:p/:id.m3u8", (req, res) => {
 
   res.redirect(stream.stream_url);
 });
-
+{
+  "user_info": {
+    "auth": 1,
+    "username": "zaki",
+    "status": "Active",
+    "expiration_date": "2099-12-31"
+  },
+  "server_info": {
+    "url": "xtream-iptv.onrender.com",
+    "server_name": "My Xtream"
+  },
+  "live_streams": [
+    {
+      "name": "2M (1080p)",
+      "stream_id": 1,
+      "stream_type": "live",
+      "stream_icon": "",
+      "category_id": 1,
+      "stream_url": "http://5.253.46.190:8000/play/a0e9/index.m3u8"
+    },
+    {
+      "name": "2M Monde +1",
+      "stream_id": 2,
+      "stream_type": "live",
+      "stream_icon": "",
+      "category_id": 1,
+      "stream_url": "https://d2qh3gh0k5vp3v.cloudfront.net/.../2M_ES.m3u8"
+    }
+  ]
+}
 app.listen(PORT, () => console.log("Server running"));
