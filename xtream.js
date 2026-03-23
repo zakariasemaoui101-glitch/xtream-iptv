@@ -9,7 +9,7 @@ let streams = [];
 // تحميل ملف M3U
 async function loadM3U() {
   try {
-    const res = await axios.get("https://github.com/zakariasemaoui101-glitch/xtream-iptv/blob/main/playlist.m3u");
+    const res = await axios.get("https://raw.githubusercontent.com/zakariasemaoui101-glitch/xtream-iptv/refs/heads/main/playlist.m3u");
     const lines = res.data.split("\n");
 
     let name = "";
