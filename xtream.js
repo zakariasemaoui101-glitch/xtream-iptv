@@ -50,36 +50,40 @@ setInterval(loadM3U, 1000 * 60 * 30);
 
 // --- Xtream API endpoint ---
 app.get("/player_api.php", (req, res) => {
-  const { username, password } = req.query;
-
+  const { username, password, action } = req.query;
+  
   if (username !== user.username || password !== user.password) {
     return res.json({ user_info: { auth: 0 } });
   }
 
-  res.json({
-    user_info: {
-      auth: 1,
-      username,
-      status: "Active",
-      expiration_date: "2099-12-31"
-    },
-    server_info: {
-      url: req.hostname,
-      server_name: "My Xtream",
-      server_protocol: "http"
-    },
-    live_streams: streams.map(s => ({
-      name: s.name,
-      stream_id: s.stream_id,
-      stream_type: "live",
-      stream_icon: "",      // ضع رابط شعار القناة إذا عندك
-      category_id: 1,       // يمكن تعديل التصنيف حسب الحاجة
-      epg_channel_id: "",   // لاحقًا يمكن ربط EPG
-      stream_url: s.stream_url
-    }))
-  });
+  switch(action) {
+    case 'get_live_categories':
+      return res.json([{category_id: "1", category_name: "General", parent_id: 0}]);
+    
+    case 'get_live_streams':
+      return res.json(streams.map(s => ({
+        num: s.stream_id,
+        name: s.name,
+        stream_type: "live",
+        stream_id: s.stream_id,
+        stream_icon: "",
+        epg_channel_id: null,
+        added: "0",
+        category_id: "1",
+        custom_sid: "",
+        tv_archive: 0,
+        direct_source: "",
+        tv_archive_duration: 0
+      })));
+    
+    default:
+      return res.json({
+        user_info: { auth: 1, username, status: "Active", expiration_date: "2099-12-31" },
+        server_info: { url: req.hostname, server_name: "My Xtream", server_protocol: "http", https_port: 443 },
+        categories: [{category_id: "1", category_name: "General", parent_id: 0}]
+      });
+  }
 });
-
 // --- endpoint لتجربة القنوات مباشرة (اختياري) ---
 app.get("/channels", (req, res) => {
   res.json(streams);
