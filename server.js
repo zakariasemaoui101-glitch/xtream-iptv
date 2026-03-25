@@ -90,7 +90,7 @@ function parseM3U(filePath) {
 
 // --- تحميل playlist.m3u ---
 function loadPlaylist() {
-    const playlistPath = path.join(__dirname, 'playlist.m3u');
+    const playlistPath = path.join(__dirname, 'https://github.com/zakariasemaoui101-glitch/xtream-iptv/blob/75cd92df109bd6b7a414237f009c701123e28721/playlist.m3u');
     if (fs.existsSync(playlistPath)) {
         const parsed = parseM3U(playlistPath);
         cachedChannels = parsed.channels;
