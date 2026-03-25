@@ -4,29 +4,30 @@ const path = require('path');
 const app = express();
 const port = process.env.PORT || 8080;
 
-// Middleware
+// Middleware أساسي
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    res.header('Content-Type', 'application/json');
     next();
 });
 
-// --- بيانات المستخدم ---
+// --- بيانات المستخدمين ---
 const USERS = {
     'zaki': { 
         password: '1234', 
         status: 'Active', 
         exp_date: '1893456000', 
         is_trial: '0', 
-        active_cons: '1' 
+        active_cons: '1',
+        max_connections: '1'
     }
 };
 
-// --- دالة قراءة وتحليل ملف M3U ---
+// --- تخزين القنوات والفئات في الذاكرة ---
 let cachedChannels = [];
 let cachedCategories = [];
 
+// --- دالة تحليل ملف M3U ---
 function parseM3U(filePath) {
     try {
         const content = fs.readFileSync(filePath, 'utf8');
@@ -40,42 +41,35 @@ function parseM3U(filePath) {
             const line = lines[i].trim();
             
             if (line.startsWith('#EXTINF:')) {
-                // استخراج البيانات من سطر EXTINF
                 const nameMatch = line.match(/,(.+)$/);
-                const tvgLogoMatch = line.match(/tvg-logo="([^"]*)"/);
-                const tvgIdMatch = line.match(/tvg-id="([^"]*)"/);
-                const groupMatch = line.match(/group-title="([^"]*)"/);
+                const tvgLogoMatch = line.match(/tvg-logo="([^"]*)"/i);
+                const tvgIdMatch = line.match(/tvg-id="([^"]*)"/i);
+                const groupMatch = line.match(/group-title="([^"]*)"/i);
                 
                 currentChannel = {
-                    name: nameMatch ? nameMatch[1].trim() : 'Unknown Channel',
+                    name: nameMatch ? nameMatch[1].trim() : 'Unknown',
                     stream_icon: tvgLogoMatch ? tvgLogoMatch[1].trim() : '',
                     epg_channel_id: tvgIdMatch ? tvgIdMatch[1].trim() : '',
                     group_title: groupMatch ? groupMatch[1].trim() : 'Uncategorized',
-                    stream_url: ''
+                    original_url: ''
                 };
-                
-                if (currentChannel.group_title) {
-                    categoriesSet.add(currentChannel.group_title);
-                }
+                if (currentChannel.group_title) categoriesSet.add(currentChannel.group_title);
                 
             } else if (!line.startsWith('#') && currentChannel) {
-                // هذا هو رابط البث (السطر الذي يلي EXTINF)
-                currentChannel.stream_url = line;
-                currentChannel.stream_id = Buffer.from(currentChannel.stream_url).toString('base64').slice(0, 20);
-                
+                currentChannel.original_url = line.trim();
+                // إنشاء stream_id فريد وآمن
+                currentChannel.stream_id = Buffer.from(currentChannel.original_url).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) || String(Date.now() + Math.random());
                 channels.push({ ...currentChannel });
                 currentChannel = null;
             }
         }
 
-        // تحويل الفئات إلى مصفوفة
-        const categories = Array.from(categoriesSet).map((cat, index) => ({
-            category_id: String(index + 1),
+        const categories = Array.from(categoriesSet).map((cat, idx) => ({
+            category_id: String(idx + 1),
             category_name: cat,
             parent_id: 0
         }));
 
-        // إضافة أرقام تسلسلية للقنوات
         channels.forEach((ch, idx) => {
             ch.num = idx + 1;
             ch.stream_type = 'live';
@@ -88,47 +82,48 @@ function parseM3U(filePath) {
         });
 
         return { channels, categories };
-        
     } catch (err) {
-        console.error('❌ Error parsing M3U:', err.message);
+        console.error('❌ M3U Parse Error:', err.message);
         return { channels: [], categories: [] };
     }
 }
 
-// --- تحميل القنوات عند بدء التشغيل ---
+// --- تحميل playlist.m3u ---
 function loadPlaylist() {
     const playlistPath = path.join(__dirname, 'playlist.m3u');
     if (fs.existsSync(playlistPath)) {
         const parsed = parseM3U(playlistPath);
         cachedChannels = parsed.channels;
         cachedCategories = parsed.categories;
-        console.log(`✅ Loaded ${cachedChannels.length} channels, ${cachedCategories.length} categories from playlist.m3u`);
+        console.log(`✅ Loaded: ${cachedChannels.length} channels | ${cachedCategories.length} categories`);
     } else {
-        console.warn('⚠️ playlist.m3u not found, using empty list');
+        console.warn('⚠️ playlist.m3u not found');
         cachedChannels = [];
         cachedCategories = [];
     }
 }
-
-// تحميل أولي
 loadPlaylist();
 
-// دالة مساعدة للرابط الأساسي
+// --- دالة الرابط الأساسي (بدون مسافات) ---
 function getBaseUrl(req) {
-    return `https://${req.get('host')}`.trim();
+    return `https://${req.get('host')}`.trim().replace(/\s+/g, '');
 }
 
-// --- 1. API الرئيسي: player_api.php ---
+// ============================================
+// 🔹 Xtream Codes API Endpoints
+// ============================================
+
+// 1. player_api.php - تسجيل الدخول + الإجراءات
 app.get('/player_api.php', (req, res) => {
     const { username, password, action } = req.query;
+    const baseUrl = getBaseUrl(req);
 
+    // التحقق من المستخدم
     if (!username || !password || !USERS[username] || USERS[username].password !== password) {
         return res.json({ user_info: { auth: 0 }, message: 'Invalid credentials' });
     }
 
-    const baseUrl = getBaseUrl(req);
-
-    // تسجيل الدخول
+    // أ) استجابة تسجيل الدخول الأساسية
     if (!action) {
         return res.json({
             user_info: {
@@ -154,78 +149,104 @@ app.get('/player_api.php', (req, res) => {
         });
     }
 
-    // جلب الفئات
+    // ب) جلب الفئات
     if (action === 'get_live_categories') {
         return res.json(cachedCategories);
     }
 
-    // جلب القنوات
+    // ج) جلب القنوات الحية
     if (action === 'get_live_streams') {
-        // إضافة روابط البث عبر الخادم
         const streams = cachedChannels.map(ch => ({
             ...ch,
-            stream_url: `${baseUrl}/stream/${ch.stream_id}`
+            stream_url: `${baseUrl}/live/${username}/${password}/${ch.stream_id}`
         }));
         return res.json(streams);
     }
 
-    // إجراءات أخرى فارغة
-    if (['get_vod_streams', 'get_series', 'get_short_epg'].includes(action)) {
+    // د) إجراءات فارغة (لتجنب الأخطاء في التطبيقات)
+    if (['get_vod_streams', 'get_series', 'get_short_epg', 'get_vod_categories', 'get_series_categories'].includes(action)) {
         return res.json([]);
     }
 
     res.json({ error: 'Unknown action' });
 });
 
-// --- 2. مسار get.php ---
+// ============================================
+// 🔹 M3U Playlist Endpoint (get.php)
+// ============================================
 app.get('/get.php', (req, res) => {
     const { username, password, type } = req.query;
+    const baseUrl = getBaseUrl(req);
 
     if (!username || !password || !USERS[username] || USERS[username].password !== password) {
         return res.status(403).send('Unauthorized');
     }
 
-    const baseUrl = getBaseUrl(req);
-
+    // طلب M3U Playlist
     if (type === 'm3u') {
         let m3u = '#EXTM3U\n';
         cachedChannels.forEach(ch => {
-            m3u += `#EXTINF:-1 tvg-id="${ch.epg_channel_id}" tvg-logo="${ch.stream_icon}" group-title="${ch.group_title}",${ch.name}\n`;
-            m3u += `${baseUrl}/stream/${ch.stream_id}\n`;
+            const logo = ch.stream_icon ? ` tvg-logo="${ch.stream_icon}"` : '';
+            const id = ch.epg_channel_id ? ` tvg-id="${ch.epg_channel_id}"` : '';
+            const group = ` group-title="${ch.group_title}"`;
+            m3u += `#EXTINF:-1${id}${logo}${group},${ch.name}\n`;
+            m3u += `${baseUrl}/live/${username}/${password}/${ch.stream_id}\n`;
         });
-        res.header('Content-Type', 'audio/x-mpegurl');
+        res.header('Content-Type', 'audio/x-mpegurl; charset=utf-8');
         return res.send(m3u);
     }
 
+    // طلب XMLTV (EPG)
     if (type === 'xmltv') {
-        res.header('Content-Type', 'text/xml');
-        return res.send('<?xml version="1.0"?><tv></tv>');
+        res.header('Content-Type', 'text/xml; charset=utf-8');
+        return res.send('<?xml version="1.0" encoding="UTF-8"?><tv></tv>');
     }
 
-    res.json({ status: 'ok' });
+    res.json({ status: 'ok', message: 'Use ?type=m3u or ?type=xmltv' });
 });
 
-// --- 3. معالجة البث الفعلي ---
-app.get('/stream/:streamId', (req, res) => {
-    const { streamId } = req.params;
-    // البحث عن القناة الأصلية
-    const channel = cachedChannels.find(ch => ch.stream_id === streamId);
+// ============================================
+// 🔹 بث القنوات (Stream Proxy/Redirect)
+// ============================================
+app.get('/live/:user/:pass/:streamId', (req, res) => {
+    const { user, pass, streamId } = req.params;
     
-    if (channel && channel.stream_url) {
-        // إعادة توجيه للرابط الأصلي في ملف M3U
-        return res.redirect(channel.stream_url);
+    // تحقق سريع من الصلاحيات
+    if (!USERS[user] || USERS[user].password !== pass) {
+        return res.status(403).json({ error: 'Unauthorized' });
     }
-    
+
+    const channel = cachedChannels.find(ch => ch.stream_id === streamId);
+    if (channel && channel.original_url) {
+        // إعادة توجيه للرابط الأصلي
+        return res.redirect(302, channel.original_url);
+    }
     res.status(404).json({ error: 'Stream not found' });
 });
 
-// --- 4. مسار لإعادة تحميل القائمة ديناميكياً (اختياري) ---
+// ============================================
+// 🔹 مسارات إضافية مفيدة
+// ============================================
+
+// إعادة تحميل القائمة دون إعادة تشغيل الخادم
 app.get('/reload', (req, res) => {
     loadPlaylist();
     res.json({ status: 'reloaded', channels: cachedChannels.length, categories: cachedCategories.length });
 });
 
+// اختبار بسيط
+app.get('/', (req, res) => {
+    res.json({ 
+        status: 'running', 
+        endpoints: [
+            '/player_api.php?username=zaki&password=1234',
+            '/get.php?username=zaki&password=1234&type=m3u',
+            '/reload'
+        ] 
+    });
+});
+
+// تشغيل الخادم
 app.listen(port, '0.0.0.0', () => {
-    console.log(`✅ Xtream Server Running on port ${port}`);
-    loadPlaylist();
+    console.log(`🚀 Xtream Server running on port ${port}`);
 });
