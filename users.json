@@ -15,28 +15,4 @@
     "active_cons": "1",
     "max_connections": "1"
   }
-   "yacine": {
-    "password": "yacine1234",
-    "status": "Active",
-    "exp_date": "1735689600",
-    "is_trial": "0",
-    "active_cons": "1",
-    "max_connections": "1"
-  }
-   "idris": {
-    "password": "idris1234",
-    "status": "Active",
-    "exp_date": "1735689600",
-    "is_trial": "0",
-    "active_cons": "1",
-    "max_connections": "1"
-  }
-   "mouhamed": {
-    "password": "mouhamed4321",
-    "status": "Active",
-    "exp_date": "1735689600",
-    "is_trial": "0",
-    "active_cons": "1",
-    "max_connections": "1"
-  }
 }
