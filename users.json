@@ -10,7 +10,7 @@
   "zaki": {
     "password": "1234",
     "status": "Active",
-    "exp_date": "1735689600",
+    "exp_date": "1798757999",
     "is_trial": "0",
     "active_cons": "1",
     "max_connections": "1"
@@ -18,7 +18,7 @@
   "salah": {
     "password": "salah1234",
     "status": "Active",
-    "exp_date": "1735689600",
+    "exp_date": "1798757999",
     "is_trial": "0",
     "active_cons": "1",
     "max_connections": "1"
@@ -26,7 +26,7 @@
     "yacine": {
     "password": "yacine1986",
     "status": "Active",
-    "exp_date": "1735689600",
+    "exp_date": "1798757999",
     "is_trial": "0",
     "active_cons": "1",
     "max_connections": "1"
@@ -34,7 +34,7 @@
     "mouhamed": {
     "password": "mouhamed1992",
     "status": "Active",
-    "exp_date": "1735689600",
+    "exp_date": "1798757999",
     "is_trial": "0",
     "active_cons": "1",
     "max_connections": "1"
@@ -42,7 +42,7 @@
     "idris": {
     "password": "idris1982",
     "status": "Active",
-    "exp_date": "1735689600",
+    "exp_date": "1798757999",
     "is_trial": "0",
     "active_cons": "1",
     "max_connections": "1"
