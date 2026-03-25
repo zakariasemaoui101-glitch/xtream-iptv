@@ -12,69 +12,68 @@ app.use((req, res, next) => {
     next();
 });
 
-// --- إعدادات التحديث التلقائي ---
-const CONFIG = {
-    PORT: process.env.PORT || 8080,
-    // رابط iptv-org الرسمي (يمكن تغييره لدولة محددة)
-    M3U_URL: process.env.M3U_URL || 'https://iptv-org.github.io/iptv/index.m3u',
-    // مدة صلاحية الكاش (6 ساعات = 360 دقيقة)
-    CACHE_TTL_MINUTES: parseInt(process.env.CACHE_TTL_MINUTES) || 360,
-    ADMIN_KEY: process.env.ADMIN_KEY || 'change_this_secret_key',
-    DEFAULT_USER: process.env.XTREAM_USER || 'zaki',
-    DEFAULT_PASS: process.env.XTREAM_PASS || '1234'
-};
-
+// --- إعدادات ---
+const M3U_URL = process.env.M3U_URL || 'https://raw.githubusercontent.com/zakariasemaoui101-glitch/xtream-iptv/main/playlist.m3u';
 const USERS_FILE = path.join(__dirname, 'users.json');
 
-// --- تخزين البيانات ---
+// تخزين البيانات
 let cachedChannels = [];
 let cachedCategories = [];
 let usersData = {};
 let lastFetchTime = null;
-let lastETag = null; // لتتبع التغييرات
 
-// ============================================
-// 🔹 دالة جلب M3U مع التحقق من التغييرات (ETag)
-// ============================================
+// --- دالة قراءة المستخدمين من users.json ---
+function loadUsers() {
+    try {
+        if (fs.existsSync(USERS_FILE)) {
+            const content = fs.readFileSync(USERS_FILE, 'utf8');
+            usersData = JSON.parse(content);
+            console.log(`👥 Loaded ${Object.keys(usersData).length} users from users.json`);
+            return true;
+        } else {
+            console.warn('⚠️ users.json not found, using empty users');
+            usersData = {};
+            return false;
+        }
+    } catch (err) {
+        console.error(`❌ Error loading users.json: ${err.message}`);
+        usersData = {};
+        return false;
+    }
+}
+
+// --- دالة حفظ المستخدمين (للتحديث الديناميكي) ---
+function saveUsers() {
+    try {
+        fs.writeFileSync(USERS_FILE, JSON.stringify(usersData, null, 2), 'utf8');
+        console.log('💾 Users saved to users.json');
+        return true;
+    } catch (err) {
+        console.error(`❌ Error saving users.json: ${err.message}`);
+        return false;
+    }
+}
+
+// --- دالة جلب وتحليل M3U من رابط ---
 async function fetchAndParseM3U(url) {
     try {
         console.log(`📡 Fetching M3U from: ${url}`);
+        const response = await fetch(url, { 
+            headers: { 'User-Agent': 'Xtream-Server/1.0' },
+            timeout: 10000 
+        });
         
-        const headers = { 'User-Agent': 'Xtream-Server/1.0' };
-        // إذا كان لدينا ETag سابق، نرسله للتحقق من التغيير
-        if (lastETag) {
-            headers['If-None-Match'] = lastETag;
-        }
-        
-        const response = await fetch(url, { headers, timeout: 15000 });
-        
-        // إذا لم يتغير الملف (304 Not Modified)
-        if (response.status === 304) {
-            console.log('✅ Playlist unchanged (ETag match), using cached version');
-            lastFetchTime = new Date().toISOString();
-            return null; // لا حاجة للتحديث
-        }
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        // حفظ ETag الجديد للمستقبل
-        lastETag = response.headers.get('etag') || null;
-        console.log(`🏷️ New ETag: ${lastETag}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         
         const content = await response.text();
         return parseM3UContent(content);
-        
     } catch (err) {
         console.error(`❌ Failed to fetch M3U: ${err.message}`);
         return null;
     }
 }
 
-// ============================================
-// 🔹 دالة تحليل محتوى M3U
-// ============================================
+// --- دالة تحليل محتوى M3U ---
 function parseM3UContent(content) {
     const lines = content.split('\n').filter(line => line.trim());
     const channels = [];
@@ -125,111 +124,35 @@ function parseM3UContent(content) {
         ch.tv_archive_duration = 0;
     });
 
-    console.log(`✅ Parsed: ${channels.length} channels, ${categories.length} categories`);
     return { channels, categories };
 }
 
-// ============================================
-// 🔹 دالة التحقق من التحديث (ذكية)
-// ============================================
-async function checkAndUpdatePlaylist() {
-    const now = Date.now();
-    const cacheAge = lastFetchTime ? (now - new Date(lastFetchTime).getTime()) : Infinity;
-    const cacheTTLms = CONFIG.CACHE_TTL_MINUTES * 60 * 1000;
-    
-    // إذا مر وقت كافٍ منذ آخر تحديث، نتحقق من التحديث
-    if (cacheAge > cacheTTLms) {
-        console.log(`🔄 Cache expired (${Math.round(cacheAge/60000)} min > ${CONFIG.CACHE_TTL_MINUTES} min), checking for updates...`);
-        const result = await fetchAndParseM3U(CONFIG.M3U_URL);
-        
-        if (result) {
-            cachedChannels = result.channels;
-            cachedCategories = result.categories;
-            lastFetchTime = new Date().toISOString();
-            console.log(`🎉 Playlist updated! ${cachedChannels.length} channels loaded`);
-        } else {
-            // لم يتغير الملف، نحدث وقت الكاش فقط
-            lastFetchTime = new Date().toISOString();
-            console.log(`⏰ Cache timestamp refreshed, content unchanged`);
-        }
-    } else {
-        console.log(`✅ Cache valid (${Math.round(cacheAge/60000)} min < ${CONFIG.CACHE_TTL_MINUTES} min)`);
-    }
-}
-
-// ============================================
-// 🔹 إدارة المستخدمين
-// ============================================
-function loadUsers() {
-    try {
-        if (fs.existsSync(USERS_FILE)) {
-            const content = fs.readFileSync(USERS_FILE, 'utf8');
-            usersData = JSON.parse(content);
-            console.log(`👥 Loaded ${Object.keys(usersData).length} users from users.json`);
-        } else {
-            console.warn('⚠️ users.json not found! Creating default user');
-            usersData = {
-                [CONFIG.DEFAULT_USER]: {
-                    password: CONFIG.DEFAULT_PASS,
-                    status: 'Active',
-                    exp_date: '1893456000',
-                    is_trial: '0',
-                    active_cons: '0',
-                    max_connections: '1'
-                }
-            };
-        }
-        return true;
-    } catch (err) {
-        console.error(`❌ Error loading users: ${err.message}`);
-        usersData = {
-            [CONFIG.DEFAULT_USER]: {
-                password: CONFIG.DEFAULT_PASS,
-                status: 'Active',
-                exp_date: '1893456000',
-                is_trial: '0',
-                active_cons: '0',
-                max_connections: '1'
-            }
-        };
-        return false;
-    }
-}
-
-function saveUsers() {
-    try {
-        fs.writeFileSync(USERS_FILE, JSON.stringify(usersData, null, 2), 'utf8');
-        console.log('💾 Users saved to users.json');
-        return true;
-    } catch (err) {
-        console.error(`❌ Error saving users: ${err.message}`);
-        return false;
-    }
-}
-
-// ============================================
-// 🔹 التحميل الأولي
-// ============================================
-async function initialize() {
+// --- تحميل البيانات عند البدء ---
+async function loadData() {
     loadUsers();
-    console.log('🔄 Initial playlist load...');
-    await checkAndUpdatePlaylist();
+    const result = await fetchAndParseM3U(M3U_URL);
+    if (result) {
+        cachedChannels = result.channels;
+        cachedCategories = result.categories;
+        lastFetchTime = new Date().toISOString();
+        console.log(`✅ Loaded ${cachedChannels.length} channels`);
+    }
 }
-initialize();
+loadData();
 
-// ============================================
-// 🔹 دوال مساعدة
-// ============================================
+// دالة الرابط الأساسي
 function getBaseUrl(req) {
     return `https://${req.get('host')}`.trim().replace(/\s+/g, '');
 }
 
+// دالة التحقق من المستخدم
 function authenticateUser(username, password) {
     const user = usersData[username];
     if (!user) return null;
     if (user.password !== password) return null;
     if (user.status !== 'Active') return null;
     
+    // التحقق من تاريخ الانتهاء
     const now = Math.floor(Date.now() / 1000);
     if (user.exp_date && parseInt(user.exp_date) < now) {
         return { ...user, auth: 0, message: 'Account expired' };
@@ -241,18 +164,17 @@ function authenticateUser(username, password) {
 // ============================================
 // 🔹 Xtream Codes API
 // ============================================
-app.get('/player_api.php', async (req, res) => {
+
+app.get('/player_api.php', (req, res) => {
     const { username, password, action } = req.query;
     const baseUrl = getBaseUrl(req);
-
-    // ✅ التحقق من التحديث قبل كل طلب مهم
-    await checkAndUpdatePlaylist();
 
     const userInfo = authenticateUser(username, password);
     if (!userInfo || userInfo.auth !== 1) {
         return res.json({ user_info: { auth: 0 }, message: userInfo?.message || 'Invalid credentials' });
     }
 
+    // تسجيل الدخول الأساسي
     if (!action) {
         return res.json({
             user_info: {
@@ -278,10 +200,12 @@ app.get('/player_api.php', async (req, res) => {
         });
     }
 
+    // جلب الفئات
     if (action === 'get_live_categories') {
         return res.json(cachedCategories);
     }
 
+    // جلب القنوات
     if (action === 'get_live_streams') {
         const streams = cachedChannels.map(ch => ({
             ...ch,
@@ -290,6 +214,7 @@ app.get('/player_api.php', async (req, res) => {
         return res.json(streams);
     }
 
+    // إجراءات أخرى
     if (['get_vod_streams', 'get_series', 'get_short_epg', 'get_vod_categories', 'get_series_categories'].includes(action)) {
         return res.json([]);
     }
@@ -298,13 +223,12 @@ app.get('/player_api.php', async (req, res) => {
 });
 
 // ============================================
-// 🔹 M3U Endpoint
+// 🔹 M3U Endpoint (get.php)
 // ============================================
-app.get('/get.php', async (req, res) => {
+
+app.get('/get.php', (req, res) => {
     const { username, password, type } = req.query;
     const baseUrl = getBaseUrl(req);
-
-    await checkAndUpdatePlaylist();
 
     const userInfo = authenticateUser(username, password);
     if (!userInfo || userInfo.auth !== 1) {
@@ -335,11 +259,10 @@ app.get('/get.php', async (req, res) => {
 // ============================================
 // 🔹 بث القنوات
 // ============================================
-app.get('/live/:user/:pass/:streamId', async (req, res) => {
+
+app.get('/live/:user/:pass/:streamId', (req, res) => {
     const { user, pass, streamId } = req.params;
     
-    await checkAndUpdatePlaylist();
-
     const userInfo = authenticateUser(user, pass);
     if (!userInfo || userInfo.auth !== 1) {
         return res.status(403).json({ error: 'Unauthorized' });
@@ -353,57 +276,121 @@ app.get('/live/:user/:pass/:streamId', async (req, res) => {
 });
 
 // ============================================
-// 🔹 مسارات إدارية
+// 🔹 إدارة المستخدمين (API)
 // ============================================
+
+// 📝 إضافة مستخدم جديد
+app.post('/api/users', (req, res) => {
+    const { username, password, admin_key } = req.body;
+    
+    // 🔐 تحقق بسيط من مفتاح المسؤول (غيّره لشيء سري!)
+    if (admin_key !== (process.env.ADMIN_KEY || 'change_this_secret_key')) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+    
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password required' });
+    }
+    
+    if (usersData[username]) {
+        return res.status(409).json({ error: 'User already exists' });
+    }
+    
+    // إنشاء مستخدم جديد بالقيم الافتراضية
+    usersData[username] = {
+        password: password,
+        status: 'Active',
+        exp_date: '1893456000',
+        is_trial: '0',
+        active_cons: '0',
+        max_connections: '1'
+    };
+    
+    if (saveUsers()) {
+        res.json({ status: 'success', message: `User ${username} created` });
+    } else {
+        res.status(500).json({ error: 'Failed to save user' });
+    }
+});
+
+// 🗑️ حذف مستخدم
+app.delete('/api/users/:username', (req, res) => {
+    const { username } = req.params;
+    const { admin_key } = req.body;
+    
+    if (admin_key !== (process.env.ADMIN_KEY || 'change_this_secret_key')) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+    
+    if (!usersData[username]) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+    
+    delete usersData[username];
+    
+    if (saveUsers()) {
+        res.json({ status: 'success', message: `User ${username} deleted` });
+    } else {
+        res.status(500).json({ error: 'Failed to save changes' });
+    }
+});
+
+// 📋 عرض جميع المستخدمين (للمسؤول فقط)
+app.get('/api/users', (req, res) => {
+    const { admin_key } = req.query;
+    
+    if (admin_key !== (process.env.ADMIN_KEY || 'change_this_secret_key')) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+    
+    // إخفاء كلمات المرور في الاستجابة
+    const safeUsers = {};
+    Object.keys(usersData).forEach(key => {
+        const { password, ...rest } = usersData[key];
+        safeUsers[key] = rest;
+    });
+    
+    res.json({ users: safeUsers, count: Object.keys(safeUsers).length });
+});
+
+// ============================================
+// 🔹 مسارات إدارية أخرى
+// ============================================
+
+// إعادة تحميل القائمة والمستخدمين
 app.get('/reload', async (req, res) => {
-    // تحديث فوري بغض النظر عن الكاش
-    console.log('🔄 Manual reload requested...');
-    lastFetchTime = null; // إعادة تعيين الكاش
-    await checkAndUpdatePlaylist();
+    loadUsers();
+    await loadData();
     res.json({ 
         status: 'reloaded', 
         users: Object.keys(usersData).length,
         channels: cachedChannels.length, 
         categories: cachedCategories.length,
-        lastFetch: lastFetchTime,
-        etag: lastETag
+        lastFetch: lastFetchTime 
     });
 });
 
-app.get('/status', (req, res) => {
-    const cacheAge = lastFetchTime ? 
-        Math.round((Date.now() - new Date(lastFetchTime).getTime()) / 60000) : 'N/A';
-    
-    res.json({ 
-        status: 'running',
-        m3u_source: CONFIG.M3U_URL,
-        cache_ttl_minutes: CONFIG.CACHE_TTL_MINUTES,
-        cache_age_minutes: cacheAge,
-        etag: lastETag,
-        users_count: Object.keys(usersData).length,
-        channels_loaded: cachedChannels.length,
-        categories_loaded: cachedCategories.length,
-        last_update: lastFetchTime
-    });
-});
-
+// حالة الخادم
 app.get('/', (req, res) => {
     res.json({ 
         status: 'running',
+        m3u_source: M3U_URL,
+        users_count: Object.keys(usersData).length,
+        channels_loaded: cachedChannels.length,
+        last_update: lastFetchTime,
         endpoints: [
             '/player_api.php?username=USER&password=PASS',
             '/get.php?username=USER&password=PASS&type=m3u',
-            '/status',
-            '/reload'
+            '/reload',
+            'POST /api/users (add user)',
+            'DELETE /api/users/:username (delete user)'
         ] 
     });
 });
 
-// ============================================
-// 🔹 تشغيل الخادم
-// ============================================
+// تشغيل الخادم
 app.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Xtream Server running on port ${port}`);
-    console.log(`📡 M3U Source: ${CONFIG.M3U_URL}`);
-    console.log(`⏰ Auto-update TTL: ${CONFIG.CACHE_TTL_MINUTES} minutes`);
+    console.log(`📡 M3U Source: ${M3U_URL}`);
+    console.log(`👥 Users loaded: ${Object.keys(usersData).length}`);
 });
