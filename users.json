@@ -10,7 +10,7 @@
   "salah": {
     "password": "salah1234",
     "status": "Active",
-    "exp_date": "1735689600",
+    "exp_date": "1893456000",
     "is_trial": "0",
     "active_cons": "1",
     "max_connections": "1"
