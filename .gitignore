@@ -1,0 +1,9 @@
+node_modules/
+.env
+*.log
+.DS_Store
+# اختياري: إذا أردت إبقاء users.json محلياً فقط
+# users.jsonnode_modules/
+.env
+*.log
+.DS_Store
